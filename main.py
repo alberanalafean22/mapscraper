@@ -3,114 +3,121 @@ import pandas as pd
 from apify_client import ApifyClient
 
 # --- KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="Maps Scraper - Apify", layout="wide")
+st.set_page_config(page_title="Maps Scraper Pro", layout="wide", page_icon="📍")
 
-st.title("📍 Google Maps Extractor")
-st.subheader("Automasi pengambilan data lokasi (Nama, Koordinat, Kategori, Alamat)")
+st.title("📍 Google Maps Data Extractor")
+st.markdown("""
+Aplikasi ini menarik data **Nama Usaha, Kategori, Alamat, dan Koordinat** langsung dari Google Maps menggunakan API Apify.
+""")
 
-# --- SIDEBAR: KONFIGURASI API ---
+# --- SIDEBAR KONFIGURASI ---
 with st.sidebar:
-    st.header("🔑 API Configuration")
-    apify_token = st.text_input("Apify API Token", type="password", help="Dapatkan di console.apify.com")
+    st.header("🔑 Pengaturan API")
+    apify_token = st.text_input("Apify API Token", type="password")
     st.divider()
-    st.info("""
-    **Tips Pencarian:**
-    - **Keyword**: Jenis usaha (e.g., 'Apotek', 'Bengkel')
-    - **Lokasi**: Nama kota saja (e.g., 'Kota Solok')
-    """)
+    st.markdown("### 💡 Tips")
+    st.caption("- Gunakan keyword umum (contoh: 'Cafe')")
+    st.caption("- Gunakan lokasi kota (contoh: 'Padang')")
+    debug_mode = st.checkbox("Aktifkan Mode Debug", value=False)
 
 # --- INPUT FORM ---
 col1, col2, col3 = st.columns([2, 2, 1])
 
 with col1:
-    keyword = st.text_input("Kategori Usaha", placeholder="Contoh: Coffee Shop")
+    keyword = st.text_input("Kategori Usaha", placeholder="Contoh: Bengkel")
 with col2:
-    city_param = st.text_input("Kota (Location)", placeholder="Contoh: Kota Solok")
+    location_input = st.text_input("Lokasi / Kota", placeholder="Contoh: Solok")
 with col3:
-    limit = st.number_input("Limit Data", min_value=1, max_value=200, value=10)
+    limit = st.number_input("Limit", min_value=1, max_value=500, value=10)
 
-# --- TOMBOL EKSEKUSI ---
-if st.button("🚀 Mulai Scraping", use_container_width=True):
+# --- LOGIKA SCRAPING ---
+if st.button("🚀 Jalankan Scraping Sekarang", use_container_width=True):
     if not apify_token:
-        st.error("Silakan masukkan API Token di sidebar!")
-    elif not keyword or not city_param:
-        st.warning("Keyword dan Kota tidak boleh kosong!")
+        st.error("Token Apify wajib diisi!")
+    elif not keyword:
+        st.warning("Keyword pencarian tidak boleh kosong!")
     else:
         try:
             client = ApifyClient(apify_token)
             
-            with st.spinner(f"Sedang mencari '{keyword}' di '{city_param}'..."):
-                # Konfigurasi Input menyesuaikan UI aktor compass/google-maps-extractor
+            with st.spinner(f"Menghubungi robot Apify untuk mencari '{keyword}'..."):
+                # Gabungkan keyword dan lokasi untuk akurasi maksimal
+                search_query = f"{keyword} di {location_input}" if location_input else keyword
+                
+                # Input yang paling kompatibel dengan aktor 2Mdma1N6Fd0y3QEjR
                 run_input = {
-                    "searchStrings": [keyword],
-                    "locationQuery": city_param,
+                    "searchStrings": [search_query],
                     "maxCrawledPlacesPerSearch": limit,
-                    "country": "Indonesia",
-                    "city": city_param,
-                    "language": "en", # Berdasarkan screenshot Anda
+                    "language": "id",
                     "exportPlaceUrls": True,
                 }
 
-                # Menjalankan Aktor menggunakan ID: 2Mdma1N6Fd0y3QEjR
+                # Menjalankan Aktor
                 run = client.actor("2Mdma1N6Fd0y3QEjR").call(run_input=run_input)
                 
-                # Mengambil data dari dataset hasil scraping
-                dataset_items = client.dataset(run["defaultDatasetId"]).list_items().items
+                # Mengambil data dari Dataset
+                items = client.dataset(run["defaultDatasetId"]).list_items().items
                 
-                if dataset_items:
-                    raw_df = pd.DataFrame(dataset_items)
+                if items:
+                    df_raw = pd.DataFrame(items)
                     
-                    # --- EKSTRAKSI DATA SPESIFIK ---
-                    # 1. Ekstrak Koordinat (Lat/Lng biasanya ada di kolom 'location')
-                    if 'location' in raw_df.columns:
-                        raw_df['Latitude'] = raw_df['location'].apply(lambda x: x.get('lat') if isinstance(x, dict) else None)
-                        raw_df['Longitude'] = raw_df['location'].apply(lambda x: x.get('lng') if isinstance(x, dict) else None)
+                    if debug_mode:
+                        st.subheader("🛠️ Debug: Kolom Tersedia")
+                        st.write(df_raw.columns.tolist())
+                        st.write(df_raw.head(3))
 
-                    # 2. Pemetaan nama kolom untuk tampilan user
-                    mapping = {
-                        'title': 'Nama Usaha',
-                        'categoryName': 'Kategori',
-                        'address': 'Alamat',
-                        'Latitude': 'Latitude',
-                        'Longitude': 'Longitude'
-                    }
+                    # --- PROSES EKSTRAKSI DATA ---
+                    # 1. Ekstrak Lat/Lng dari kolom 'location'
+                    if 'location' in df_raw.columns:
+                        df_raw['Latitude'] = df_raw['location'].apply(lambda x: x.get('lat') if isinstance(x, dict) else None)
+                        df_raw['Longitude'] = df_raw['location'].apply(lambda x: x.get('lng') if isinstance(x, dict) else None)
+
+                    # 2. Pemetaan kolom (Mapping nama kolom agar rapi)
+                    # Kami menggunakan get() agar jika kolom tidak ada, aplikasi tidak crash
+                    output_data = pd.DataFrame()
+                    output_data['Nama Usaha'] = df_raw['title'] if 'title' in df_raw.columns else "N/A"
+                    output_data['Kategori'] = df_raw['categoryName'] if 'categoryName' in df_raw.columns else "N/A"
+                    output_data['Alamat'] = df_raw['address'] if 'address' in df_raw.columns else "N/A"
                     
-                    # Filter hanya kolom yang ada di dataset
-                    available_cols = [c for c in mapping.keys() if c in raw_df.columns]
-                    df_final = raw_df[available_cols].rename(columns=mapping)
+                    if 'Latitude' in df_raw.columns:
+                        output_data['Latitude'] = df_raw['Latitude']
+                        output_data['Longitude'] = df_raw['Longitude']
 
                     # --- TAMPILKAN HASIL ---
-                    st.success(f"Berhasil menarik {len(df_final)} data lokasi!")
+                    st.success(f"Berhasil menemukan {len(output_data)} data!")
                     
-                    # Layout kolom untuk tabel dan peta
-                    tab1, tab2 = st.tabs(["📊 Tabel Data", "🗺️ Visualisasi Peta"])
+                    tab_table, tab_map = st.tabs(["📊 Tabel Data", "🗺️ Peta Lokasi"])
                     
-                    with tab1:
-                        st.dataframe(df_final, use_container_width=True)
+                    with tab_table:
+                        st.dataframe(output_data, use_container_width=True)
                         
-                        # Tombol Download
-                        csv = df_final.to_csv(index=False).encode('utf-8')
+                        # Download CSV
+                        csv = output_data.to_csv(index=False).encode('utf-8')
                         st.download_button(
-                            label="📥 Download Hasil (CSV)",
+                            label="📥 Download CSV",
                             data=csv,
-                            file_name=f"data_{keyword.lower().replace(' ', '_')}_{city_param.lower()}.csv",
-                            mime='text/csv',
+                            file_name=f"scraping_{keyword.replace(' ', '_')}.csv",
+                            mime='text/csv'
                         )
-                    
-                    with tab2:
-                        if 'Latitude' in df_final.columns and 'Longitude' in df_final.columns:
-                            # Menghapus baris yang tidak punya koordinat untuk peta
-                            map_data = df_final.dropna(subset=['Latitude', 'Longitude'])
-                            st.map(map_data)
+                        
+                    with tab_map:
+                        if 'Latitude' in output_data.columns:
+                            # Bersihkan data yang koordinatnya kosong
+                            map_df = output_data.dropna(subset=['Latitude', 'Longitude'])
+                            if not map_df.empty:
+                                st.map(map_df[['Latitude', 'Longitude']])
+                            else:
+                                st.info("Tidak ada data koordinat untuk ditampilkan di peta.")
                         else:
-                            st.warning("Data koordinat tidak ditemukan untuk peta.")
+                            st.warning("Kolom koordinat tidak ditemukan.")
 
                 else:
-                    st.info("Tidak ada data ditemukan. Coba gunakan keyword yang lebih umum atau cek penulisan kota.")
+                    st.error("❌ Tidak ada data ditemukan! Coba hapus parameter lokasi atau ganti keyword.")
+                    st.info("Saran: Jika mencari 'Kopi', cukup tulis 'Coffee Shop' dan di kolom lokasi tulis 'Solok'.")
 
         except Exception as e:
-            st.error(f"Terjadi kesalahan teknis: {str(e)}")
+            st.error(f"Terjadi Kesalahan: {str(e)}")
 
 # --- FOOTER ---
 st.divider()
-st.caption("Workflow: Streamlit -> Apify API -> Google Maps Scraper (Compass)")
+st.caption("Powered by Apify Scraper Engine | 2026 Update")
