@@ -43,7 +43,8 @@ if st.button("Mulai Scraping"):
                 }
 
                 # Menjalankan Actor
-                run = client.actor("apify/google-maps-scraper").call(run_input=run_input)
+                #run = client.actor("apify/google-maps-scraper").call(run_input=run_input)
+                run = client.actor("2Mdma1N6Fd0y3QEjR").call(run_input=run_input)
                 
                 # Mengambil Data dari Dataset
                 dataset_items = client.dataset(run["defaultDatasetId"]).list_items().items
